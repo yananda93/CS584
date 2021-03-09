@@ -39,7 +39,7 @@ def iou(bb1, bb2):
     area1 = width1*height1
     area2 = width2*height2
     left = max(ll1, ll2)
-    right = min(lr1, lr2])
+    right = min(lr1, lr2)
     low = max(l1, l2)
     high = min(h1,h2)
     w = max(0,right - left)
@@ -71,7 +71,7 @@ def convert(size, box):
 def convert_annotation(image_name):
     boxes = []
     classIDs = []
-    annotation_file = annotations_path + img_name+'.xml'
+    annotation_file = annotations_path + image_name +'.xml'
     in_file = open(annotation_file)
     tree=ET.parse(in_file)
     root = tree.getroot()
@@ -122,58 +122,62 @@ def detect(darknet, layer, filename):
             confidence = scores[classID]
 
             if confidence > CONFIDENCE_THRESHOLD:
-                # scale the bounding box coordinates back relative to the size of the image
-                # box = detection[0:4] * np.array([W, H, W, H])
-                # (centerX, centerY, width, height) = box.astype("int")
-                # # get lower left corner of the box
-                # x = int(centerX - (width / 2))
-                # y = int(centerY - (height / 2))
+            
                 boxes.append(detection[0:4])
                 confidences.append(float(confidence))
                 classIDs.append(classID)
-    return total_time, classIDs, boxes, confidences
+    return run_time, classIDs, boxes, confidences
 
 
-def evalutaion(cfg, weights, darknet, layer, filenames):
-    true
-    recall_levels = np.linspace(0.0,1.0, num=11)   
+def evalutaion(cfg, weights, darknet, layer, filenames, c):
+    predicts = []
+    recall_levels = np.linspace(0.0,1.0, num=11)  
+    num_ground_truth = 0 
+    total_time  = 0 
     for file in filenames:
-        TP = 0
-        precision = 0
-        recall = 0
-        total_time, classIDs, boxes, confidences = detect(darknet, layer, file)
-        idxs = cv2.dnn.NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD)
-        if len(idxs) > 0:
-            true_classIDs, true_boxes = convert_annotation(file)
-            for i in idxs.flatten():
-                cls_id = classIDs[i]
+  
+        run_time, classIDs, boxes, confidences = detect(darknet, layer, file)
+        total_time += run_time
+      #  idxs = cv2.dnn.NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD)
+      
+        true_classIDs, true_boxes = convert_annotation(file)
+        for i in range(len(classIDs)):
+            if c == classIDs[i]:
                 highest_iou = 0
-                for true_cls, ture_box in zip(true_classIDs, true_boxes)：
+                TP = 0
+                for true_cls, ture_box in zip(true_classIDs, true_boxes):
                     if classIDs[i] == true_cls:
+                        num_ground_truth += 1
                         IOU = iou(ture_box, boxes[i])
                         if IOU > highest_iou:
                             highest_iou = IOU
 
                 if  highest_iou >= IOU_THRESHOLD:  
-                    TP += 1     
-                else:
-                    FP += 1
-            precision = TP / len(idxs.flatten())
-            recall = TP / len(true_boxes)
+                    TP = 1   
 
-    # call detection
-    total_time, classIDs, boxes = detect(darknet, layer, filenames)
-
-    for i in range
-
-    # calculate AP
-    true_labels = []
-    for file in filenames:
-        true_label = convert_annotation(file)
-
-
-
-    return (0,total_time)
+                predicts.append([confidences[i], TP])
+    predicts.sort(reverse=True)  # sort by confidence
+    precision = []
+    recall = []
+    TPs = []
+    for pred in predicts:
+        TPs.append(pred[1])
+    TPs = np.array(TPs)
+    for i in range(len(predicts)):
+        accTP = np.sum(TPs[:i+1])
+        accFP= i + 1 - accTP
+        precision.append(accTP / (i + 1))
+        recall.append(accTP / num_ground_truth)
+    AP = 0
+    for level in recall_levels:
+        p_interp = 0
+        for idx,r in enumerate(recall):
+            if r > level:
+                if precision[idx] > p_interp:
+                    p_interp = precision[idx]
+        AP += p_interp
+    
+    return (AP/ 11,total_time)
 
 def evaluate_all_class(cfg, weights):
     run_time_all = 0
@@ -188,10 +192,10 @@ def evaluate_all_class(cfg, weights):
     ln = net.getLayerNames()
     ln = [ln[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
-    for c in classes:
-        filenames = getFileNames(c)
+    for i in range(len(classes)):
+        filenames = getFileNames(classes[i])
         n += len(filenames)
-        AP, run_time = evalutaion(cfg, weights, net, ln, filenames)
+        AP, run_time = evalutaion(cfg, weights, net, ln, filenames, i)
         run_time_all += run_time
         AP_all += AP
     return (AP_all / len(classes), run_time_all / n)
